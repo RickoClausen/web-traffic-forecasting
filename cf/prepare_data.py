@@ -11,27 +11,40 @@ dtypes = {
     'unit_sales': np.float16,
 }
 
+# simply loads data
 train = pd.read_csv('data/raw/train.csv', dtype=dtypes, parse_dates=[1])
 test = pd.read_csv('data/raw/test.csv', dtype=dtypes, parse_dates=[1])
 
+# Identifies unique combinations of store/item in test data.
 is_test = test.groupby(['store_nbr', 'item_nbr']).apply(lambda x: pd.Series({'is_test': 1})).reset_index()
+
+# Identifies which items are discrete. Some items are e.g. number of grams or simple count
 is_discrete = train.groupby('item_nbr')['unit_sales'].apply(lambda x: np.all((x.values).astype(int) == x.values))
 is_discrete = is_discrete.reset_index().rename(columns={'unit_sales': 'is_discrete'})
+
+# finds the start date for each unique item
 start_date = train.groupby(['store_nbr', 'item_nbr'])['date'].min()
 test_start = test['date'].min()
-test['unit_sales'] = -1
-print 'loaded data'
 
+# initialize unit_sales column (target variable)
+test['unit_sales'] = -1
+print('loaded data')
+
+# concatenate train and test data
 df = pd.concat([train, test], axis=0)
 del train, test
+# change True=1, False=0, nan=2
 df['onpromotion'] = df['onpromotion'].map(lambda x: int(x) if not np.isnan(x) else 2).astype(np.int8)
-print 'concatenated'
+print('concatenated')
 
+# merge with dataframe, which identifies store/item combo in test data
+# drop combination, if not in test data
 df = df.merge(is_test, how='left', on=['store_nbr', 'item_nbr'])
 df = df[df['is_test'] == 1].drop('is_test', axis=1)
-print 'filtered test'
+print('filtered test')
 
-# dates
+# create daterange for the data
+# figure out if some days are missing
 date_range = pd.date_range(df['date'].min(), df['date'].max(), freq='D')
 date_idx = range(len(date_range))
 dt_to_idx = dict(map(reversed, enumerate(date_range)))
@@ -56,7 +69,7 @@ for i in range(op.shape[1]):
         p = 0
     fill = np.random.binomial(n=1, p=p, size=nan_mask.sum())
     op[nan_mask, i] = fill
-print 'nan mean'
+print('nan mean')
 
 uid = pd.concat([df['id'].reset_index(), missing_df], axis=1).fillna(0)
 uid = uid[['store_nbr', 'item_nbr'] + date_idx]
@@ -70,7 +83,7 @@ if not os.path.isdir('data/processed'):
 np.save('data/processed/x_raw.npy', df[date_idx].values.astype(np.float16))
 np.save('data/processed/onpromotion.npy', op.astype(np.int8))
 np.save('data/processed/id.npy', uid[date_idx].values.astype(np.int32))
-print 'pivoted'
+print('pivoted')
 del op, uid
 
 df[date_idx] = np.log(np.maximum(df[date_idx].values, 0) + 1)
@@ -118,7 +131,7 @@ features = [
 for feature, dtype in features:
     vals = df[feature].values.astype(dtype)
     np.save('data/processed/{}.npy'.format(feature), vals)
-print 'finished non-temporal features'
+print('finished non-temporal features')
 
 
 # lags
@@ -166,7 +179,7 @@ df_idx = df[['store_nbr', 'item_nbr', 'family', 'class', 'city', 'state', 'type'
 
 aux_ts = np.zeros([df.shape[0], len(date_idx), len(groups)], dtype=np.float16)
 for i, group in enumerate(groups):
-    print i
+    print(i)
     ts = df.groupby(group)[date_idx].mean().reset_index()
     ts = df_idx.merge(ts, how='left', on=group)
     aux_ts[:, :, i] = ts[date_idx].fillna(0).values
